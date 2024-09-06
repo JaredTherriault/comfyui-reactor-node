@@ -51,6 +51,7 @@ class FaceSwapScript(scripts.Script):
         face_restore_visibility,
         codeformer_weight,
         interpolation,
+        batch_size
     ):
         self.enable = enable
         if self.enable:
@@ -67,6 +68,7 @@ class FaceSwapScript(scripts.Script):
             self.face_restore_visibility = face_restore_visibility
             self.codeformer_weight = codeformer_weight
             self.interpolation = interpolation
+            self.batch_size = batch_size
             self.source_faces_index = [
                 int(x) for x in source_faces_index.strip(",").split(",") if x.isnumeric()
             ]
@@ -113,6 +115,7 @@ class FaceSwapScript(scripts.Script):
                         face_restore_visibility=self.face_restore_visibility,
                         codeformer_weight=self.codeformer_weight,
                         interpolation=self.interpolation,
+                        batch_size=self.batch_size,
                     )
                     p.init_images[0] = result
 
@@ -150,6 +153,7 @@ class FaceSwapScript(scripts.Script):
                         face_restore_visibility=self.face_restore_visibility,
                         codeformer_weight=self.codeformer_weight,
                         interpolation=self.interpolation,
+                        batch_size=self.batch_size,
                     )
                     p.init_images = result
 
