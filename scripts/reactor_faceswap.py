@@ -14,6 +14,7 @@ from scripts.reactor_logger import logger
 from scripts.reactor_swapper import (
     swap_face,
     swap_face_many,
+    swap_face_many_batched,
     get_current_faces_model,
     analyze_faces,
     half_det_size,
@@ -138,23 +139,41 @@ class FaceSwapScript(scripts.Script):
                     #     p.init_images[i] = result
 
                 elif len(p.init_images) > 1:
-                    result = swap_face_many(
-                        self.source,
-                        p.init_images,
-                        source_faces_index=self.source_faces_index,
-                        faces_index=self.faces_index,
-                        model=self.model,
-                        gender_source=self.gender_source,
-                        gender_target=self.gender_target,
-                        face_model=self.face_model,
-                        faces_order=self.faces_order,
-                        face_boost_enabled=self.face_boost_enabled,
-                        face_restore_model=self.face_restore_model,
-                        face_restore_visibility=self.face_restore_visibility,
-                        codeformer_weight=self.codeformer_weight,
-                        interpolation=self.interpolation,
-                        batch_size=self.batch_size,
-                    )
+                    if batch_size > 0:
+                        result = swap_face_many_batched(
+                            self.source,
+                            p.init_images,
+                            source_faces_index=self.source_faces_index,
+                            faces_index=self.faces_index,
+                            model=self.model,
+                            gender_source=self.gender_source,
+                            gender_target=self.gender_target,
+                            face_model=self.face_model,
+                            faces_order=self.faces_order,
+                            face_boost_enabled=self.face_boost_enabled,
+                            face_restore_model=self.face_restore_model,
+                            face_restore_visibility=self.face_restore_visibility,
+                            codeformer_weight=self.codeformer_weight,
+                            interpolation=self.interpolation,
+                            batch_size=self.batch_size,
+                        )
+                    else:
+                        result = swap_face_many(
+                            self.source,
+                            p.init_images,
+                            source_faces_index=self.source_faces_index,
+                            faces_index=self.faces_index,
+                            model=self.model,
+                            gender_source=self.gender_source,
+                            gender_target=self.gender_target,
+                            face_model=self.face_model,
+                            faces_order=self.faces_order,
+                            face_boost_enabled=self.face_boost_enabled,
+                            face_restore_model=self.face_restore_model,
+                            face_restore_visibility=self.face_restore_visibility,
+                            codeformer_weight=self.codeformer_weight,
+                            interpolation=self.interpolation,
+                        )
                     p.init_images = result
 
                 logger.status("--Done!--")
