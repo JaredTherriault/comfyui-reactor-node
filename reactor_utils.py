@@ -17,6 +17,9 @@ import folder_paths
 
 ORT_SESSION = None
 
+default_logger_severity = 3 # default logging
+# default_logger_severity = 1 # verbose logging
+
 def tensor_to_pil(img_tensor, batch_index=0):
     # Convert tensor of shape [batch_size, channels, height, width] at the batch_index to PIL Image
     img_tensor = img_tensor[batch_index].unsqueeze(0)
@@ -185,7 +188,7 @@ def get_ort_session():
 
 def set_ort_session(model_path, providers) -> Any:
     global ORT_SESSION
-    onnxruntime.set_default_logger_severity(1)
+    onnxruntime.set_default_logger_severity(default_logger_severity)
     ORT_SESSION = onnxruntime.InferenceSession(model_path, providers=providers)
     return ORT_SESSION
 
