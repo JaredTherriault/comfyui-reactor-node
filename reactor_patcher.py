@@ -16,9 +16,6 @@ import onnx
 from onnx import numpy_helper
 from scripts.reactor_logger import logger
 
-default_logger_severity = 3 # default logging
-# default_logger_severity = 1 # verbose logging
-
 
 def patched_get_model(self, **kwargs):
     session = PickableInferenceSession(self.onnx_file, **kwargs)
@@ -42,7 +39,7 @@ def patched_get_model(self, **kwargs):
 
 
 def patched_faceanalysis_init(self, name=DEFAULT_MP_NAME, root='~/.insightface', allowed_modules=None, **kwargs):
-    onnxruntime.set_default_logger_severity(default_logger_severity)
+    onnxruntime.set_default_logger_severity(1)
     self.models = {}
     self.model_dir = ensure_available('models', name, root=root)
     onnx_files = glob.glob(osp.join(self.model_dir, '*.onnx'))
