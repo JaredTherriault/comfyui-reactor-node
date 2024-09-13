@@ -699,50 +699,47 @@ def swap_face_many_batched(
                         def process_batch(batch, face_index, gender_target, face_boost_enabled, faces_order, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger):
                             batch_results = [None] * len(batch)
                             
-                            # Use torch.no_grad() to disable gradient calculation
-                            with torch.no_grad():
-                                for i, (target_img, target_face) in enumerate(batch):
-                                    target_face_single = None
-                                    bgr_fake = None
+                            for i, (target_img, target_face) in enumerate(batch):
+                                target_face_single = None
+                                bgr_fake = None
+                                
+                                try:
+                                    target_face_single, wrong_gender = get_face_single(target_img, target_face, face_index=face_index, gender_target=gender_target, order=faces_order[0])
                                     
-                                    try:
-                                        target_face_single, wrong_gender = get_face_single(target_img, target_face, face_index=face_index, gender_target=gender_target, order=faces_order[0])
-                                        
-                                        if target_face_single is not None and wrong_gender == 0:
-                                            logger.status(f"Swapping {i}...")
-                                            if face_boost_enabled:
-                                                logger.status(f"Face Boost is enabled")
-                                                bgr_fake, M = face_swapper.get(target_img, target_face_single, source_face, paste_back=False)
-                                                bgr_fake, scale = restorer.get_restored_face(bgr_fake, face_restore_model, face_restore_visibility, codeformer_weight, interpolation)
-                                                M *= scale
-                                                batch_results[i] = swapper.in_swap(target_img, bgr_fake, M)
-                                            else:
-                                                batch_results[i] = face_swapper.get(target_img, target_face_single, source_face)
-                                        elif wrong_gender == 1:
-                                            logger.status("Wrong target gender detected")
+                                    if target_face_single is not None and wrong_gender == 0:
+                                        logger.status(f"Swapping {i}...")
+                                        if face_boost_enabled:
+                                            logger.status(f"Face Boost is enabled")
+                                            bgr_fake, M = face_swapper.get(target_img, target_face_single, source_face, paste_back=False)
+                                            bgr_fake, scale = restorer.get_restored_face(bgr_fake, face_restore_model, face_restore_visibility, codeformer_weight, interpolation)
+                                            M *= scale
+                                            batch_results[i] = swapper.in_swap(target_img, bgr_fake, M)
                                         else:
-                                            logger.status(f"No target face found for face index {face_index}")
+                                            batch_results[i] = face_swapper.get(target_img, target_face_single, source_face)
+                                    elif wrong_gender == 1:
+                                        logger.status("Wrong target gender detected")
+                                    else:
+                                        logger.status(f"No target face found for face index {face_index}")
+                                
+                                except Exception as e:
+                                    logger.error(f"Exception occurred while processing image {i}: {str(e)}")
+                                
+                                finally:
+                                    # Clear intermediate results and free GPU memory
+                                    if bgr_fake is not None:
+                                        del bgr_fake
+                                    if target_face_single is not None:
+                                        del target_face_single
                                     
-                                    except Exception as e:
-                                        logger.error(f"Exception occurred while processing image {i}: {str(e)}")
-                                    
-                                    finally:
-                                        # Clear intermediate results (do not clear GPU memory here)
-                                        if bgr_fake is not None:
-                                            del bgr_fake
-                                        if target_face_single is not None:
-                                            del target_face_single
-                                        
-                                        # Optionally clear GPU memory outside of the loop or periodically
-                                        torch.cuda.empty_cache()
+                                    torch.cuda.empty_cache()
                             
                             return batch_results
 
-                        def process_images_in_batches(results, target_faces, face_num, gender_target, faces_order, face_boost_enabled, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger, batch_size=4, max_workers=4):
+                        def process_images_in_batches(results, target_faces, face_num, gender_target, faces_order, face_boost_enabled, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger, max_workers=4):
                             num_batches = (len(results) + batch_size - 1) // batch_size  # Calculate number of batches
                             batch_indices = [(i * batch_size, min((i + 1) * batch_size, len(results))) for i in range(num_batches)]
                             
-                            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
                                 future_to_batch = {}
                                 for start_idx, end_idx in batch_indices:
                                     batch = [(results[i], target_faces[i]) for i in range(start_idx, end_idx)]
@@ -762,9 +759,8 @@ def swap_face_many_batched(
                             
                             logger.status("All batches processed.")
 
-                        # Example usage
                         max_workers = 10
-                        process_images_in_batches(results, target_faces, face_num, gender_target, faces_order, face_boost_enabled, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger, batch_size=4, max_workers=max_workers)                   
+                        process_images_in_batches(results, target_faces, face_num, gender_target, faces_order, face_boost_enabled, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger, max_workers=max_workers)
                                             
                     elif src_wrong_gender == 1:
                         src_wrong_gender = 0
