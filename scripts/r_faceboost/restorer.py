@@ -27,7 +27,7 @@ from reactor_utils import (
 
 if cuda is not None:
     if cuda.is_available():
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        providers = ["CUDAExecutionProvider"]
     else:
         providers = ["CPUExecutionProvider"]
 else:

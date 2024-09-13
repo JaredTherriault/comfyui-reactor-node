@@ -139,7 +139,6 @@ class reactor:
                 "input_faces_index": ("STRING", {"default": "0"}),
                 "source_faces_index": ("STRING", {"default": "0"}),
                 "console_log_level": ([0, 1, 2], {"default": 1}),
-                "batch_size": ("INT", {"default": 256, "min": 1}),
             },
             "optional": {
                 "source_image": ("IMAGE",),
@@ -315,7 +314,7 @@ class reactor:
 
         return result
     
-    def execute(self, enabled, input_image, swap_model, detect_gender_source, detect_gender_input, source_faces_index, input_faces_index, console_log_level, face_restore_model,face_restore_visibility, codeformer_weight, facedetection, batch_size, source_image=None, face_model=None, faces_order=None, face_boost=None):
+    def execute(self, enabled, input_image, swap_model, detect_gender_source, detect_gender_input, source_faces_index, input_faces_index, console_log_level, face_restore_model,face_restore_visibility, codeformer_weight, facedetection, source_image=None, face_model=None, faces_order=None, face_boost=None):
 
         if face_boost is not None:
             self.face_boost_enabled = face_boost["enabled"]
@@ -367,7 +366,6 @@ class reactor:
             face_restore_visibility=self.boost_model_visibility,
             codeformer_weight=self.boost_cf_weight,
             interpolation=self.interpolation,
-            batch_size=batch_size,
         )
         result = batched_pil_to_tensor(p.init_images)
 
@@ -395,7 +393,6 @@ class ReActorPlusOpt:
                 "face_restore_model": (get_model_names(get_restorers),),
                 "face_restore_visibility": ("FLOAT", {"default": 1, "min": 0.1, "max": 1, "step": 0.05}),
                 "codeformer_weight": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1, "step": 0.05}),
-                "batch_size": ("INT", {"default": 256, "min": 1}),
             },
             "optional": {
                 "source_image": ("IMAGE",),
@@ -425,7 +422,7 @@ class ReActorPlusOpt:
         self.boost_model_visibility = 1
         self.boost_cf_weight = 0.5
     
-    def execute(self, enabled, input_image, swap_model, facedetection, face_restore_model, face_restore_visibility, codeformer_weight, batch_size, source_image=None, face_model=None, options=None, face_boost=None):
+    def execute(self, enabled, input_image, swap_model, facedetection, face_restore_model, face_restore_visibility, codeformer_weight, source_image=None, face_model=None, options=None, face_boost=None):
 
         if options is not None:
             self.faces_order = [options["input_faces_order"], options["source_faces_order"]]
@@ -442,7 +439,7 @@ class ReActorPlusOpt:
             self.face_boost_enabled = False
         
         result = reactor.execute(
-            self,enabled,input_image,swap_model,self.detect_gender_source,self.detect_gender_input,self.source_faces_index,self.input_faces_index,self.console_log_level,face_restore_model,face_restore_visibility,codeformer_weight,facedetection,batch_size,source_image,face_model,self.faces_order, face_boost=face_boost
+            self,enabled,input_image,swap_model,self.detect_gender_source,self.detect_gender_input,self.source_faces_index,self.input_faces_index,self.console_log_level,face_restore_model,face_restore_visibility,codeformer_weight,facedetection,source_image,face_model,self.faces_order, face_boost=face_boost
         )
 
         return result

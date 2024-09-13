@@ -24,11 +24,6 @@ from reactor_utils import (
 )
 from scripts.r_faceboost import swapper, restorer
 
-from comfy.model_management import soft_empty_cache
-import torch
-                        
-import concurrent.futures
-
 import warnings
 
 np.warnings = warnings
@@ -36,7 +31,7 @@ np.warnings.filterwarnings('ignore')
 
 if cuda is not None:
     if cuda.is_available():
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        providers = ["CUDAExecutionProvider"]
     else:
         providers = ["CPUExecutionProvider"]
 else:
@@ -208,7 +203,6 @@ def swap_face(
     face_restore_visibility: int = 1,
     codeformer_weight: float = 0.5,
     interpolation: str = "Bicubic",
-    batch_size: int = 256,
 ):
     global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH
     result_image = target_img
@@ -377,7 +371,6 @@ def swap_face_many(
     face_restore_visibility: int = 1,
     codeformer_weight: float = 0.5,
     interpolation: str = "Bicubic",
-    batch_size: int = 256,
 ):
     global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH, TARGET_FACES_LIST, TARGET_IMAGE_LIST_HASH
     result_images = target_imgs
@@ -512,74 +505,28 @@ def swap_face_many(
                     source_face_idx += 1
 
                     if source_face is not None and src_wrong_gender == 0:
-
-                        def process_batch(batch, face_index, gender_target, face_boost_enabled, faces_order, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger):
-                            batch_results = [None] * len(batch)
-                            
-                            for i, (target_img, target_face) in enumerate(batch):
-                                target_face_single = None
-                                bgr_fake = None
-                                
-                                try:
-                                    target_face_single, wrong_gender = get_face_single(target_img, target_face, face_index=face_index, gender_target=gender_target, order=faces_order[0])
-                                    
-                                    if target_face_single is not None and wrong_gender == 0:
-                                        logger.status(f"Swapping {i}...")
-                                        if face_boost_enabled:
-                                            logger.status(f"Face Boost is enabled")
-                                            bgr_fake, M = face_swapper.get(target_img, target_face_single, source_face, paste_back=False)
-                                            bgr_fake, scale = restorer.get_restored_face(bgr_fake, face_restore_model, face_restore_visibility, codeformer_weight, interpolation)
-                                            M *= scale
-                                            batch_results[i] = swapper.in_swap(target_img, bgr_fake, M)
-                                        else:
-                                            batch_results[i] = face_swapper.get(target_img, target_face_single, source_face)
-                                    elif wrong_gender == 1:
-                                        logger.status("Wrong target gender detected")
-                                    else:
-                                        logger.status(f"No target face found for face index {face_index}")
-                                
-                                except Exception as e:
-                                    logger.error(f"Exception occurred while processing image {i}: {str(e)}")
-                                
-                                finally:
-                                    # Clear intermediate results and free GPU memory
-                                    if bgr_fake is not None:
-                                        del bgr_fake
-                                    if target_face_single is not None:
-                                        del target_face_single
-                                    
-                                    torch.cuda.empty_cache()
-                            
-                            return batch_results
-
-                        def process_images_in_batches(results, target_faces, face_num, gender_target, faces_order, face_boost_enabled, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger, max_workers=4):
-                            num_batches = (len(results) + batch_size - 1) // batch_size  # Calculate number of batches
-                            batch_indices = [(i * batch_size, min((i + 1) * batch_size, len(results))) for i in range(num_batches)]
-                            
-                            with concurrent.futures.ThreadPoolExecutor() as executor:
-                                future_to_batch = {}
-                                for start_idx, end_idx in batch_indices:
-                                    batch = [(results[i], target_faces[i]) for i in range(start_idx, end_idx)]
-                                    future = executor.submit(process_batch, batch, face_num, gender_target, face_boost_enabled, faces_order, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger)
-                                    future_to_batch[future] = (start_idx, end_idx)
-                                
-                                for future in concurrent.futures.as_completed(future_to_batch):
-                                    start_idx, end_idx = future_to_batch[future]
-                                    try:
-                                        batch_results = future.result()
-                                        for i, result in enumerate(batch_results):
-                                            if result is not None:
-                                                results[start_idx + i] = result
-                                        logger.status(f"Batch {start_idx // batch_size + 1}/{num_batches} complete.")
-                                    except Exception as e:
-                                        logger.error(f"Exception occurred in batch processing: {str(e)}")
-                            
-                            logger.status("All batches processed.")
-
-                        # Example usage
-                        max_workers = 10
-                        process_images_in_batches(results, target_faces, face_num, gender_target, faces_order, face_boost_enabled, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger, max_workers=max_workers)
-                                            
+                        # Reading results to make current face swap on a previous face result
+                        for i, (target_img, target_face) in enumerate(zip(results, target_faces)):
+                            target_face_single, wrong_gender = get_face_single(target_img, target_face, face_index=face_num, gender_target=gender_target, order=faces_order[0])
+                            if target_face_single is not None and wrong_gender == 0:
+                                result = target_img
+                                logger.status(f"Swapping {i}...")
+                                if face_boost_enabled:
+                                    logger.status(f"Face Boost is enabled")
+                                    bgr_fake, M = face_swapper.get(target_img, target_face_single, source_face, paste_back=False)
+                                    bgr_fake, scale = restorer.get_restored_face(bgr_fake, face_restore_model, face_restore_visibility, codeformer_weight, interpolation)
+                                    M *= scale
+                                    result = swapper.in_swap(target_img, bgr_fake, M)
+                                else:
+                                    # logger.status(f"Swapping as-is")
+                                    result = face_swapper.get(target_img, target_face_single, source_face)
+                                results[i] = result
+                            elif wrong_gender == 1:
+                                wrong_gender = 0
+                                logger.status("Wrong target gender detected")
+                                continue
+                            else:
+                                logger.status(f"No target face found for {face_num}")
                     elif src_wrong_gender == 1:
                         src_wrong_gender = 0
                         logger.status("Wrong source gender detected")
