@@ -139,7 +139,7 @@ class reactor:
                 "input_faces_index": ("STRING", {"default": "0"}),
                 "source_faces_index": ("STRING", {"default": "0"}),
                 "console_log_level": ([0, 1, 2], {"default": 1}),
-                "batch_size": ("INT", {"default": 256, "min": 0}),
+                "batch_size": ("INT", {"default": 256, "min": 1}),
             },
             "optional": {
                 "source_image": ("IMAGE",),
@@ -395,7 +395,7 @@ class ReActorPlusOpt:
                 "face_restore_model": (get_model_names(get_restorers),),
                 "face_restore_visibility": ("FLOAT", {"default": 1, "min": 0.1, "max": 1, "step": 0.05}),
                 "codeformer_weight": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1, "step": 0.05}),
-                "batch_size": ("INT", {"default": 256, "min": 0}),
+                "batch_size": ("INT", {"default": 256, "min": 1}),
             },
             "optional": {
                 "source_image": ("IMAGE",),
