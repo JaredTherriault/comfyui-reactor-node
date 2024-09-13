@@ -26,6 +26,10 @@ from scripts.r_faceboost import swapper, restorer
 
 import warnings
 
+import torch
+import concurrent
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 np.warnings = warnings
 np.warnings.filterwarnings('ignore')
 
@@ -527,6 +531,241 @@ def swap_face_many(
                                 continue
                             else:
                                 logger.status(f"No target face found for {face_num}")
+                    elif src_wrong_gender == 1:
+                        src_wrong_gender = 0
+                        logger.status("Wrong source gender detected")
+                        continue
+                    else:
+                        logger.status(f"No source face found for face number {source_face_idx}.")
+
+                result_images = [Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB)) for result in results]
+
+            else:
+                logger.status("No source face(s) in the provided Index")
+        else:
+            logger.status("No source face(s) found")
+    return result_images
+
+def swap_face_many_batched(
+    source_img: Union[Image.Image, None],
+    target_imgs: List[Image.Image],
+    model: Union[str, None] = None,
+    source_faces_index: List[int] = [0],
+    faces_index: List[int] = [0],
+    gender_source: int = 0,
+    gender_target: int = 0,
+    face_model: Union[Face, None] = None,
+    faces_order: List = ["large-small", "large-small"],
+    face_boost_enabled: bool = False,
+    face_restore_model = None,
+    face_restore_visibility: int = 1,
+    codeformer_weight: float = 0.5,
+    interpolation: str = "Bicubic",
+    batch_size: int = 256,
+):
+    global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH, TARGET_FACES_LIST, TARGET_IMAGE_LIST_HASH
+    result_images = target_imgs
+
+    if model is not None:
+
+        if isinstance(source_img, str):  # source_img is a base64 string
+            import base64, io
+            if 'base64,' in source_img:  # check if the base64 string has a data URL scheme
+                # split the base64 string to get the actual base64 encoded image data
+                base64_data = source_img.split('base64,')[-1]
+                # decode base64 string to bytes
+                img_bytes = base64.b64decode(base64_data)
+            else:
+                # if no data URL scheme, just decode
+                img_bytes = base64.b64decode(source_img)
+            
+            source_img = Image.open(io.BytesIO(img_bytes))
+            
+        target_imgs = [cv2.cvtColor(np.array(target_img), cv2.COLOR_RGB2BGR) for target_img in target_imgs]
+
+        if source_img is not None:
+
+            source_img = cv2.cvtColor(np.array(source_img), cv2.COLOR_RGB2BGR)
+
+            source_image_md5hash = get_image_md5hash(source_img)
+
+            if SOURCE_IMAGE_HASH is None:
+                SOURCE_IMAGE_HASH = source_image_md5hash
+                source_image_same = False
+            else:
+                source_image_same = True if SOURCE_IMAGE_HASH == source_image_md5hash else False
+                if not source_image_same:
+                    SOURCE_IMAGE_HASH = source_image_md5hash
+
+            logger.info("Source Image MD5 Hash = %s", SOURCE_IMAGE_HASH)
+            logger.info("Source Image the Same? %s", source_image_same)
+
+            if SOURCE_FACES is None or not source_image_same:
+                logger.status("Analyzing Source Image...")
+                source_faces = analyze_faces(source_img)
+                SOURCE_FACES = source_faces
+            elif source_image_same:
+                logger.status("Using Hashed Source Face(s) Model...")
+                source_faces = SOURCE_FACES
+
+        elif face_model is not None:
+
+            source_faces_index = [0]
+            logger.status("Using Loaded Source Face Model...")
+            source_face_model = [face_model]
+            source_faces = source_face_model
+
+        else:
+            logger.error("Cannot detect any Source")
+
+        if source_faces is not None:
+
+            target_faces = []
+            for i, target_img in enumerate(target_imgs):
+                if state.interrupted or model_management.processing_interrupted():
+                    logger.status("Interrupted by User")
+                    break
+                
+                target_image_md5hash = get_image_md5hash(target_img)
+                if len(TARGET_IMAGE_LIST_HASH) == 0:
+                    TARGET_IMAGE_LIST_HASH = [target_image_md5hash]
+                    target_image_same = False
+                elif len(TARGET_IMAGE_LIST_HASH) == i:
+                    TARGET_IMAGE_LIST_HASH.append(target_image_md5hash)
+                    target_image_same = False
+                else:
+                    target_image_same = True if TARGET_IMAGE_LIST_HASH[i] == target_image_md5hash else False
+                    if not target_image_same:
+                        TARGET_IMAGE_LIST_HASH[i] = target_image_md5hash
+                
+                logger.info("(Image %s) Target Image MD5 Hash = %s", i, TARGET_IMAGE_LIST_HASH[i])
+                logger.info("(Image %s) Target Image the Same? %s", i, target_image_same)
+
+                if len(TARGET_FACES_LIST) == 0:
+                    logger.status(f"Analyzing Target Image {i}...")
+                    target_face = analyze_faces(target_img)
+                    TARGET_FACES_LIST = [target_face]
+                elif len(TARGET_FACES_LIST) == i and not target_image_same:
+                    logger.status(f"Analyzing Target Image {i}...")
+                    target_face = analyze_faces(target_img)
+                    TARGET_FACES_LIST.append(target_face)
+                elif len(TARGET_FACES_LIST) != i and not target_image_same:
+                    logger.status(f"Analyzing Target Image {i}...")
+                    target_face = analyze_faces(target_img)
+                    TARGET_FACES_LIST[i] = target_face
+                elif target_image_same:
+                    logger.status("(Image %s) Using Hashed Target Face(s) Model...", i)
+                    target_face = TARGET_FACES_LIST[i]
+                
+
+                # logger.status(f"Analyzing Target Image {i}...")
+                # target_face = analyze_faces(target_img)
+                if target_face is not None:
+                    target_faces.append(target_face)
+
+            # No use in trying to swap faces if no faces are found, enhancement
+            if len(target_faces) == 0:
+                logger.status("Cannot detect any Target, skipping swapping...")
+                return result_images
+
+            if source_img is not None:
+                # separated management of wrong_gender between source and target, enhancement
+                source_face, src_wrong_gender = get_face_single(source_img, source_faces, face_index=source_faces_index[0], gender_source=gender_source, order=faces_order[1])
+            else:
+                # source_face = sorted(source_faces, key=lambda x: x.bbox[0])[source_faces_index[0]]
+                source_face = sorted(source_faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse = True)[source_faces_index[0]]
+                src_wrong_gender = 0
+
+            if len(source_faces_index) != 0 and len(source_faces_index) != 1 and len(source_faces_index) != len(faces_index):
+                logger.status(f'Source Faces must have no entries (default=0), one entry, or same number of entries as target faces.')
+            elif source_face is not None:
+                results = target_imgs
+                model_path = model_path = os.path.join(insightface_path, model)
+                face_swapper = getFaceSwapModel(model_path)
+
+                source_face_idx = 0
+
+                for face_num in faces_index:
+                    # No use in trying to swap faces if no further faces are found, enhancement
+                    if face_num >= len(target_faces):
+                        logger.status("Checked all existing target faces, skipping swapping...")
+                        break
+
+                    if len(source_faces_index) > 1 and source_face_idx > 0:
+                        source_face, src_wrong_gender = get_face_single(source_img, source_faces, face_index=source_faces_index[source_face_idx], gender_source=gender_source, order=faces_order[1])
+                    source_face_idx += 1
+
+                    if source_face is not None and src_wrong_gender == 0:
+
+                        def process_batch(batch, face_index, gender_target, face_boost_enabled, faces_order, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger):
+                            batch_results = [None] * len(batch)
+                            
+                            # Use torch.no_grad() to disable gradient calculation
+                            with torch.no_grad():
+                                for i, (target_img, target_face) in enumerate(batch):
+                                    target_face_single = None
+                                    bgr_fake = None
+                                    
+                                    try:
+                                        target_face_single, wrong_gender = get_face_single(target_img, target_face, face_index=face_index, gender_target=gender_target, order=faces_order[0])
+                                        
+                                        if target_face_single is not None and wrong_gender == 0:
+                                            logger.status(f"Swapping {i}...")
+                                            if face_boost_enabled:
+                                                logger.status(f"Face Boost is enabled")
+                                                bgr_fake, M = face_swapper.get(target_img, target_face_single, source_face, paste_back=False)
+                                                bgr_fake, scale = restorer.get_restored_face(bgr_fake, face_restore_model, face_restore_visibility, codeformer_weight, interpolation)
+                                                M *= scale
+                                                batch_results[i] = swapper.in_swap(target_img, bgr_fake, M)
+                                            else:
+                                                batch_results[i] = face_swapper.get(target_img, target_face_single, source_face)
+                                        elif wrong_gender == 1:
+                                            logger.status("Wrong target gender detected")
+                                        else:
+                                            logger.status(f"No target face found for face index {face_index}")
+                                    
+                                    except Exception as e:
+                                        logger.error(f"Exception occurred while processing image {i}: {str(e)}")
+                                    
+                                    finally:
+                                        # Clear intermediate results (do not clear GPU memory here)
+                                        if bgr_fake is not None:
+                                            del bgr_fake
+                                        if target_face_single is not None:
+                                            del target_face_single
+                                        
+                                        # Optionally clear GPU memory outside of the loop or periodically
+                                        torch.cuda.empty_cache()
+                            
+                            return batch_results
+
+                        def process_images_in_batches(results, target_faces, face_num, gender_target, faces_order, face_boost_enabled, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger, batch_size=4, max_workers=4):
+                            num_batches = (len(results) + batch_size - 1) // batch_size  # Calculate number of batches
+                            batch_indices = [(i * batch_size, min((i + 1) * batch_size, len(results))) for i in range(num_batches)]
+                            
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                                future_to_batch = {}
+                                for start_idx, end_idx in batch_indices:
+                                    batch = [(results[i], target_faces[i]) for i in range(start_idx, end_idx)]
+                                    future = executor.submit(process_batch, batch, face_num, gender_target, face_boost_enabled, faces_order, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger)
+                                    future_to_batch[future] = (start_idx, end_idx)
+                                
+                                for future in concurrent.futures.as_completed(future_to_batch):
+                                    start_idx, end_idx = future_to_batch[future]
+                                    try:
+                                        batch_results = future.result()
+                                        for i, result in enumerate(batch_results):
+                                            if result is not None:
+                                                results[start_idx + i] = result
+                                        logger.status(f"Batch {start_idx // batch_size + 1}/{num_batches} complete.")
+                                    except Exception as e:
+                                        logger.error(f"Exception occurred in batch processing: {str(e)}")
+                            
+                            logger.status("All batches processed.")
+
+                        max_workers = 4
+                        process_images_in_batches(results, target_faces, face_num, gender_target, faces_order, face_boost_enabled, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger, batch_size=4, max_workers=max_workers)                   
+                                            
                     elif src_wrong_gender == 1:
                         src_wrong_gender = 0
                         logger.status("Wrong source gender detected")
