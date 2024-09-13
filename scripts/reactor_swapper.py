@@ -762,7 +762,7 @@ def swap_face_many_batched(
                             
                             logger.status("All batches processed.")
 
-                        max_workers = 4
+                        max_workers = 10
                         process_images_in_batches(results, target_faces, face_num, gender_target, faces_order, face_boost_enabled, source_face, face_swapper, restorer, face_restore_model, face_restore_visibility, codeformer_weight, interpolation, swapper, logger, batch_size=4, max_workers=max_workers)                   
                                             
                     elif src_wrong_gender == 1:
