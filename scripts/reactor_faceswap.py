@@ -96,8 +96,7 @@ class FaceSwapScript(scripts.Script):
                 self.gender_target = 2
 
             # if self.source is not None:
-            p_is_instance = isinstance(p, StableDiffusionProcessingImg2Img)
-            if swap_in_source:
+            if isinstance(p, StableDiffusionProcessingImg2Img) and swap_in_source:
                 logger.status(f"Working: source face index %s, target face index %s", self.source_faces_index, self.faces_index)
 
                 if len(p.init_images) == 1:
@@ -117,6 +116,7 @@ class FaceSwapScript(scripts.Script):
                         face_restore_visibility=self.face_restore_visibility,
                         codeformer_weight=self.codeformer_weight,
                         interpolation=self.interpolation,
+                        batch_size=self.batch_size,
                     )
                     p.init_images[0] = result
 
